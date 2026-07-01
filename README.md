@@ -59,6 +59,7 @@ python main.py
 
 ```
 ├── .env
+├── .gitignore
 ├── database.py
 ├── generate-readme.cjs
 ├── main.py
