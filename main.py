@@ -5,7 +5,7 @@ from typing import List
 from pydantic import BaseModel
 from datetime import date
 import logging
-from supabase_client import supabase
+from supabase_client import supabase, supabase_admin
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +34,6 @@ app.add_middleware(
 class LoginRequest(BaseModel):
     email: str
     password: str
-    role: str
 
 class AssignmentResponse(BaseModel):
     id: int
@@ -56,10 +55,10 @@ def root():
 def login(request: LoginRequest):
     """Authenticate user using Supabase"""
     try:
-        logger.info(f"Login attempt for email: {request.email} with role: {request.role}")
+        logger.info(f"Login attempt for email: {request.email}")
         
-        # Query Supabase for user
-        response = supabase.table('users').select('*').eq('email', request.email).eq('role', request.role).execute()
+        # Use admin client to bypass RLS
+        response = supabase_admin.table('users').select('*').eq('email', request.email).execute()
         
         if not response.data:
             logger.warning(f"Login failed - user not found: {request.email}")
@@ -68,20 +67,53 @@ def login(request: LoginRequest):
         user = response.data[0]
         
         # Check password (in production, use proper hashing)
-        if user['password_hash'] != request.password:
+        if user['password'] != request.password:
             logger.warning(f"Login failed - wrong password: {request.email}")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        logger.info(f"Login successful for: {request.email}")
+        # Get role-specific data (if needed)
+        user_role = user.get('role', '').lower()
+        user_data = {
+            "id": user['id'],
+            "name": user['full_name'],
+            "email": user['email'],
+            "role": user['role']
+        }
+        
+        # If student, get additional info
+        if user_role == 'student':
+            try:
+                student_response = supabase_admin.table('students')\
+                    .select('roll_number, class_id')\
+                    .eq('user_id', user['id'])\
+                    .execute()
+                if student_response.data:
+                    student_data = student_response.data[0]
+                    user_data['roll_number'] = student_data.get('roll_number')
+                    user_data['class_id'] = student_data.get('class_id')
+            except Exception as e:
+                logger.warning(f"Could not fetch student data: {str(e)}")
+        
+        # If teacher, get additional info
+        elif user_role == 'teacher':
+            try:
+                teacher_response = supabase_admin.table('teachers')\
+                    .select('employee_id, department')\
+                    .eq('user_id', user['id'])\
+                    .execute()
+                if teacher_response.data:
+                    teacher_data = teacher_response.data[0]
+                    user_data['employee_id'] = teacher_data.get('employee_id')
+                    user_data['department'] = teacher_data.get('department')
+            except Exception as e:
+                logger.warning(f"Could not fetch teacher data: {str(e)}")
+        
+        logger.info(f"Login successful for: {request.email} with role: {user_role}")
         return {
             "success": True,
-            "user": {
-                "id": user['id'],
-                "name": user['full_name'],
-                "email": user['email'],
-                "role": user['role']
-            }
+            "user": user_data
         }
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -92,8 +124,8 @@ def login(request: LoginRequest):
 def get_student_dashboard(student_id: int):
     """Get student dashboard data"""
     try:
-        # Get student with joined data
-        student_response = supabase.table('students')\
+        # Get student with joined data using admin client
+        student_response = supabase_admin.table('students')\
             .select('*, classes(name), users(full_name)')\
             .eq('id', student_id)\
             .execute()
@@ -104,7 +136,7 @@ def get_student_dashboard(student_id: int):
         student = student_response.data[0]
         
         # Get results
-        results_response = supabase.table('results')\
+        results_response = supabase_admin.table('results')\
             .select('*, subjects(name)')\
             .eq('student_id', student_id)\
             .execute()
@@ -113,7 +145,7 @@ def get_student_dashboard(student_id: int):
         total_percentage = sum(r['percentage'] for r in results) / len(results) if results else 0
         
         # Get attendance
-        attendance_response = supabase.table('attendance')\
+        attendance_response = supabase_admin.table('attendance')\
             .select('*')\
             .eq('student_id', student_id)\
             .execute()
@@ -139,7 +171,7 @@ def get_student_dashboard(student_id: int):
 def get_student_results(student_id: int):
     """Get student results"""
     try:
-        response = supabase.table('results')\
+        response = supabase_admin.table('results')\
             .select('*, subjects(name)')\
             .eq('student_id', student_id)\
             .execute()
@@ -164,7 +196,7 @@ def get_student_results(student_id: int):
 def get_student_attendance(student_id: int):
     """Get student attendance"""
     try:
-        response = supabase.table('attendance')\
+        response = supabase_admin.table('attendance')\
             .select('*, subjects(name)')\
             .eq('student_id', student_id)\
             .order('date', desc=True)\
@@ -189,8 +221,8 @@ def get_student_attendance(student_id: int):
 def get_teacher_dashboard(teacher_id: int):
     """Get teacher dashboard data"""
     try:
-        # Get teacher details
-        teacher_response = supabase.table('teachers')\
+        # Get teacher details using admin client
+        teacher_response = supabase_admin.table('teachers')\
             .select('*, users(full_name)')\
             .eq('id', teacher_id)\
             .execute()
@@ -201,7 +233,7 @@ def get_teacher_dashboard(teacher_id: int):
         teacher = teacher_response.data[0]
         
         # Get subjects taught by this teacher
-        subjects_response = supabase.table('subjects')\
+        subjects_response = supabase_admin.table('subjects')\
             .select('*')\
             .eq('teacher_id', teacher_id)\
             .execute()
@@ -216,14 +248,14 @@ def get_teacher_dashboard(teacher_id: int):
                 # Get class_id from subject
                 subject = next((s for s in subjects if s['id'] == subject_id), None)
                 if subject and subject.get('class_id'):
-                    count_response = supabase.table('students')\
+                    count_response = supabase_admin.table('students')\
                         .select('*', count='exact')\
                         .eq('class_id', subject['class_id'])\
                         .execute()
                     students_count += len(count_response.data)
         
         # Get pending assignments
-        pending_response = supabase.table('assignments')\
+        pending_response = supabase_admin.table('assignments')\
             .select('*', count='exact')\
             .in_('subject_id', subject_ids)\
             .execute()
@@ -246,7 +278,7 @@ def get_teacher_dashboard(teacher_id: int):
 def get_teacher_assignments(teacher_id: int):
     """Get assignments for a teacher"""
     try:
-        response = supabase.table('assignments')\
+        response = supabase_admin.table('assignments')\
             .select('*, subjects(name)')\
             .eq('uploaded_by', teacher_id)\
             .execute()
@@ -277,7 +309,7 @@ def get_teacher_assignments(teacher_id: int):
 def get_all_assignments():
     """Get all assignments (for student view)"""
     try:
-        response = supabase.table('assignments')\
+        response = supabase_admin.table('assignments')\
             .select('*, subjects(name)')\
             .execute()
         assignments = response.data
@@ -302,6 +334,25 @@ def get_all_assignments():
     except Exception as e:
         logger.error(f"All assignments error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint"""
+    try:
+        # Test database connection using admin client
+        response = supabase_admin.table('users').select('count', count='exact').execute()
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "message": "API is running properly"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "database": "disconnected",
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn

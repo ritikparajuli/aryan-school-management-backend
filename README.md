@@ -48,29 +48,24 @@ python main.py
 ## Development
 
 ```bash
-# Run in development mode
-uvicorn main:app --reload
+# Run in development mode with auto-reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Run tests
-python test_db.py
-python test_supabase.py
-python test_final.py
+# Or run directly
+python main.py
 ```
 
 ### Project Structure
 
 ```
+├── .env
 ├── database.py
 ├── generate-readme.cjs
 ├── main.py
 ├── models.py
 ├── README.md
-├── supabase_client.py
-├── test_db.py
-├── test_dns.py
-├── test_final.py
-├── test_supabase_api.py
-└── test_supabase.py
+├── requirements.txt
+└── supabase_client.py
 ```
 
 ### Environment Variables
@@ -78,46 +73,121 @@ python test_final.py
 Create a `.env` file in the root directory:
 
 ```env
+# Supabase Configuration
 SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_key
+SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_KEY=your_supabase_service_role_key
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/login` | User login |
-| GET | `/api/students` | Get all students |
-| POST | `/api/students` | Add new student |
-| GET | `/api/teachers` | Get all teachers |
-| POST | `/api/attendance` | Mark attendance |
-| GET | `/api/results` | Get results |
-| POST | `/api/results` | Add results |
-| GET | `/api/messages` | Get messages |
-| POST | `/api/messages` | Send message |
+| POST | `/api/login` | User login with role-based redirect |
+| GET | `/api/health` | Health check endpoint |
+| GET | `/api/student/{id}/dashboard` | Get student dashboard data |
+| GET | `/api/student/{id}/results` | Get student results |
+| GET | `/api/student/{id}/attendance` | Get student attendance |
+| GET | `/api/teacher/{id}/dashboard` | Get teacher dashboard data |
+| GET | `/api/teacher/{id}/assignments` | Get teacher assignments |
+| GET | `/api/assignments` | Get all assignments |
 
 ## Database Schema
 
-- **Users** (id, name, email, password_hash, role)
-- **Students** (id, user_id, class, section, roll_no)
-- **Teachers** (id, user_id, department, qualification)
-- **Attendance** (id, student_id, date, status, subject)
-- **Assignments** (id, title, description, deadline, teacher_id)
-- **Results** (id, student_id, subject, marks, grade)
-- **Messages** (id, sender_id, receiver_id, content, timestamp)
+### Users Table
+- `id` (integer, primary key)
+- `email` (string, unique)
+- `password` (string) - Store hashed passwords in production
+- `role` (string) - 'student' or 'teacher'
+- `full_name` (string)
 
-## Testing
+### Students Table
+- `id` (integer, primary key)
+- `user_id` (integer, foreign key to users)
+- `roll_number` (string, unique)
+- `class_id` (integer, foreign key to classes)
+- `date_of_birth` (date)
+- `phone` (string)
+- `parent_phone` (string)
+- `address` (text)
+- `profile_pic` (text)
 
-```bash
-# Run database tests
-python test_db.py
+### Teachers Table
+- `id` (integer, primary key)
+- `user_id` (integer, foreign key to users)
+- `employee_id` (string, unique)
+- `department` (string)
+- `phone` (string)
+- `profile_pic` (text)
 
-# Run Supabase tests
-python test_supabase.py
+### Classes Table
+- `id` (integer, primary key)
+- `name` (string)
+- `section` (string)
+- `academic_year` (string)
 
-# Run final integration tests
-python test_final.py
+### Subjects Table
+- `id` (integer, primary key)
+- `name` (string)
+- `code` (string, unique)
+- `class_id` (integer, foreign key to classes)
+- `teacher_id` (integer, foreign key to teachers)
+- `credits` (integer)
+
+### Attendance Table
+- `id` (integer, primary key)
+- `student_id` (integer, foreign key to students)
+- `subject_id` (integer, foreign key to subjects)
+- `date` (date)
+- `status` (string) - 'present' or 'absent'
+- `marked_by` (integer, foreign key to teachers)
+
+### Assignments Table
+- `id` (integer, primary key)
+- `subject_id` (integer, foreign key to subjects)
+- `title` (string)
+- `description` (text)
+- `file_url` (text)
+- `total_marks` (integer)
+- `due_date` (date)
+- `uploaded_by` (integer, foreign key to teachers)
+
+### Results Table
+- `id` (integer, primary key)
+- `student_id` (integer, foreign key to students)
+- `subject_id` (integer, foreign key to subjects)
+- `exam_type` (string)
+- `marks_obtained` (float)
+- `total_marks` (float)
+- `grade` (string)
+- `percentage` (float)
+
+## Security Notes
+
+⚠️ **Important Security Considerations:**
+1. **Password Hashing**: In production, implement proper password hashing using `bcrypt` or `argon2`
+2. **JWT Tokens**: Use JWT for session management instead of storing user data in localStorage
+3. **Environment Variables**: Never commit `.env` file to version control
+4. **CORS**: Restrict CORS origins in production to your frontend domain only
+5. **Rate Limiting**: Implement rate limiting for login attempts
+
+## Troubleshooting
+
+### Common Issues
+
+**1. Permission denied for table users**
+```sql
+-- Run in Supabase SQL Editor
+GRANT SELECT ON users TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
 ```
+
+**2. Column 'password_hash' not found**
+- Check your users table schema. The column might be named 'password' instead.
+
+**3. Connection timeout**
+- Check your SUPABASE_URL in .env
+- Ensure your IP is allowed in Supabase network restrictions
 
 ## Contributing
 
@@ -130,10 +200,6 @@ python test_final.py
 ## License
 
 MIT © Aryan College
-
-## Live Demo
-
-[Coming Soon]
 
 ## Contact
 
