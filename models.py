@@ -24,7 +24,7 @@ class Student(Base):
     __tablename__ = "students"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    roll_number = Column(String(50), unique=True)
+    roll_no = Column(String(50), unique=True)
     class_id = Column(Integer, ForeignKey("classes.id"))
     date_of_birth = Column(Date)
     phone = Column(String(20))

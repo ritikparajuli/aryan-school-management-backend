@@ -125,7 +125,7 @@ rootStructure +
 '### Students Table\n' +
 '- `id` (integer, primary key)\n' +
 '- `user_id` (integer, foreign key to users)\n' +
-'- `roll_number` (string, unique)\n' +
+'- `roll_no` (string, unique)\n' +
 '- `class_id` (integer, foreign key to classes)\n' +
 '- `date_of_birth` (date)\n' +
 '- `phone` (string)\n' +
